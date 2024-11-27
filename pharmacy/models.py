@@ -31,3 +31,15 @@ class Order(models.Model):
     def __str__(self):
         return f"Order for {self.medicine.name} by {self.customer_name}"
 
+class Cart(models.Model):
+    user = models.OneToOneField(customuser, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+class CartItem(models.Model):
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name="items")
+    medicine = models.ForeignKey(Medicine, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField()
+
+    def total_price(self):
+        return self.medicine.price * self.quantity
+
