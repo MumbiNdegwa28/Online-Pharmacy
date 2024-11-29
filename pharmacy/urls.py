@@ -12,6 +12,8 @@ urlpatterns = [
     path('cart/remove/<int:item_id>/', views.remove_cart_item, name='remove_cart_item'),
     # path('add-to-cart/<int:medicine_id>/', views.add_to_cart, name='add_to_cart'),
     path('checkout/', views.checkout, name='checkout'),
+    path('mpesa/callback', views.mpesa_callback, name='mpesa_callback'),
+
 
     # path('register', views.register, name='register'),
     # path('login', views.login, name='login'),

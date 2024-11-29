@@ -5,8 +5,19 @@ from django.contrib.auth.models import User
 from .models import Medicine, Order, Cart, CartItem
 from django.contrib import messages
 from django.db import transaction
-
 from django.core.exceptions import ObjectDoesNotExist
+#mpesa imports
+import requests
+import json
+from requests.auth import HTTPBasicAuth
+from datetime import datetime
+import base64
+from django.http import HttpResponse
+
+
+from django.core.mail import send_mail
+from django.http import JsonResponse
+
 
 
 def home(request):
@@ -121,7 +132,8 @@ def add_to_cart(request, medicine_id):
 def cart(request):
     cart = Cart.objects.filter(user=request.user).first()
     items = cart.items.all() if cart else []
-    return render(request, "cart.html", {"items": items})
+    total_price = sum(item.total_price() for item in items)
+    return render(request, "cart.html", {"items": items, "total_price":total_price})
 
 def update_cart_item(request, item_id):
     cart_item = get_object_or_404(CartItem, pk=item_id, cart__user=request.user)
@@ -142,15 +154,85 @@ def remove_cart_item(request, item_id):
     messages.success(request, "Item removed from cart!")
     return redirect("pharmacy:cart")
 
+
 def checkout(request):
     cart = Cart.objects.filter(user=request.user).first()
     items = CartItem.objects.filter(cart=cart) if cart else []
+    total_price = sum(item.quantity * item.medicine.price for item in items)
 
     if request.method == 'POST':
-        # Implement M-Pesa API integration here
-        return redirect('pharmacy:success')
+        customer_name = request.POST.get('customer_name')
+        customer_email = request.POST.get('customer_email')
+        customer_address = request.POST.get('customer_address')
+        phone_number = request.POST.get('phone_number')  # Get phone number from form input
 
-    return render(request, 'checkout.html', {'cart': cart, 'items': items})
+        # M-Pesa credentials
+        consumer_key = 'qGGvcCbvDKwX1h5S95vPy7gBKaI43xjg9jCzY5iMoGnxZ5G5'
+        consumer_secret = '9Q12LudJh8NLnMmgoMGjGPDXgJtniWDrXMj7y6xBuN0dpAQOBRGlV5e6XUJCWrAn'
+        #api_url = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
+        business_shortcode = '174379'  # Replace with your Paybill or Till number
+        passkey = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919' 
+        callback_url = 'https://shining-rabbit-uniquely.ngrok-free.app/tenant/payments/response'  # Replace with your callback URL
+
+        # Generate timestamp
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        password = base64.b64encode((business_shortcode + passkey + timestamp).encode()).decode()
+
+        # Get access token
+        auth_url = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
+        auth_response = requests.get(auth_url, auth=(consumer_key, consumer_secret))
+        access_token = auth_response.json().get('access_token')
+
+         # Convert Decimal to float
+        total_price_float = float(total_price)
+
+        # Prepare STK push payload
+        stk_url = 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
+        headers = {'Authorization': f'Bearer {access_token}'}
+        payload = {
+            "BusinessShortCode": business_shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": total_price_float,
+            "PartyA": phone_number,
+            "PartyB": business_shortcode,
+            "PhoneNumber": phone_number,
+            "CallBackURL": callback_url,
+            "AccountReference": "MEDIVANA",
+            "TransactionDesc": "Medicine Purchase"
+        }
+
+        # Send STK push request
+        stk_response = requests.post(stk_url, headers=headers, json=payload)
+
+        print(stk_response._content)
+
+        if stk_response.status_code == 200:
+            # Notify user of payment request
+            send_mail(
+                'Payment Request Sent',
+                f'Dear {customer_name}, we have sent a payment request of KES {total_price} to your phone. Please complete the transaction to confirm your order.',
+                'medivana@example.com',  # Replace with your sender email
+                [customer_email],
+                fail_silently=False,
+            )
+            messages.success(request, "Payment request sent. Please complete the transaction.")
+            return redirect('pharmacy:success')
+        else:
+            messages.error(request, "Failed to initiate payment. Please try again.")
+        
+    # return HttpResponse('success')
+
+    return render(request, 'checkout.html', {'cart': cart, 'items': items, 'total_price': total_price})
+
+def mpesa_callback(request):
+    if request.method == 'POST':
+        callback_data = json.loads(request.body.decode('utf-8'))
+        print("Callback Data:", callback_data)
+        # Process payment confirmation (e.g., update order status, notify the user)
+        return JsonResponse({"ResultCode": 0, "ResultDesc": "Success"})
+
 
 # def register(request):
     # if request.method == "POST":

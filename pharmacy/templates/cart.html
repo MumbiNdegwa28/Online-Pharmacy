@@ -47,7 +47,16 @@
                 {% endfor %}
             </tbody>
         </table>
-        <a href="{% url 'pharmacy:checkout' %}" class="btn btn-success">Checkout</a>
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div>
+                <a href="{% url 'pharmacy:home' %}" class="btn btn-primary">Continue Shopping</a>
+            </div>
+            <div>
+                <strong>Total: KES {{ total_price }}</strong>
+            </div>
+            <div>
+                <a href="{% url 'pharmacy:checkout' %}" class="btn btn-success">Checkout</a>
+            </div>
     {% else %}
         <p>Your cart is empty.</p>
         <a href="{% url 'pharmacy:home' %}" class="btn btn-primary">Continue Shopping</a>
