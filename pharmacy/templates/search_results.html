@@ -1,13 +1,13 @@
 {% extends "layout.html" %}
 
-{% block title %}Available Medicines - Medivana{% endblock %}
+{% block title %}Search Results - Medivana{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-    <!-- Available Medicines -->
-    <h2 class="mb-3">Available Medicines</h2>
+    <h2>Search Results for "{{ query }}"</h2>
     <div class="row">
-        {% for medicine in medicines %}
+        {% if medications %}
+        {% for medicine in medications %}
         <div class="col-md-4">
             <div class="card mb-4">
                 <img src="{{ medicine.image.url }}" class="card-img-top" alt="{{ medicine.name }}" style="height: 200px; object-fit: cover;">
@@ -21,6 +21,9 @@
             </div>
         </div>
         {% endfor %}
+        {% else %}
+        <p>No medications found matching your search criteria.</p>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

@@ -26,6 +26,15 @@ def home(request):
      medicines = Medicine.objects.all()
      return render(request, 'home.html', {'medicines': medicines})
 
+def search_results(request):
+    query = request.GET.get('q', '').strip()  # Get the search query
+    if query:
+        medications = Medicine.objects.filter(name__icontains=query)  # Case-insensitive search by name
+    else:
+        medications = Medicine.objects.all()  # If no query, return all medicines
+    
+    return render(request, 'search_results.html', {'query': query, 'medications': medications})
+
 def order_medicine(request, pk):
     medicine = get_object_or_404(Medicine, pk=pk)
 
