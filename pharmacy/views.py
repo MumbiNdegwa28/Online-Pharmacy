@@ -2,10 +2,11 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, authenticate, logout
 from .forms import CustomUserCreationForm, CustomAuthenticationForm
 from django.contrib.auth.models import User
-from .models import Medicine, Order, Cart, CartItem
+from .models import Medicine, Order, Cart, CartItem,Payment
 from django.contrib import messages
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils.crypto import get_random_string
 #mpesa imports
 import requests
 import json
@@ -13,6 +14,7 @@ from requests.auth import HTTPBasicAuth
 from datetime import datetime
 import base64
 from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
 
 
 from django.core.mail import send_mail
@@ -26,6 +28,17 @@ def home(request):
 
 def order_medicine(request, pk):
     medicine = get_object_or_404(Medicine, pk=pk)
+
+     # First check if the user is authenticated
+    if not request.user.is_authenticated:
+        # For anonymous users, ensure a session ID exists or create one
+        session_id = request.session.session_key
+        if not session_id:
+            request.session.create()  # Create session if not present
+            session_id = request.session.session_key
+    else:
+        # For authenticated users, use the user ID
+        session_id = None  # No session ID needed for authenticated users
 
     if request.method == "POST":
         customer_name = request.POST.get('customer_name', '').strip()
@@ -58,6 +71,9 @@ def order_medicine(request, pk):
                     customer_phone=customer_phone,
                     customer_address=customer_address,
                     quantity=quantity,
+                    user=request.user.id,
+                    session_id=session_id,  # Associate with user or session
+
                 )
 
                 # Debugging: Print the instance details before saving
@@ -79,31 +95,22 @@ def order_medicine(request, pk):
             # Update stock
             medicine.stock -= quantity
             medicine.save()
+            
+            # Handle cart
+            # Handle cart using session ID for anonymous users
+            if request.user.is_authenticated:
+                cart, created = Cart.objects.get_or_create(user=request.user)
+            else:
+                cart, created = Cart.objects.get_or_create(session_id=session_id)
 
-            # Add to the user's cart
-            user = request.user
-            print(user)
-            # Get or create the cart for the user (if it doesn't exist)
-            cart, _ = Cart.objects.get_or_create(user=user)
-
-            print(cart)
-
-            try:
-                # Try to get existing cart item
-                cart_item = CartItem.objects.get(cart=cart, medicine=medicine)
-                # Update existing cart item quantity
+            # Add or update cart item
+            cart_item, _ = CartItem.objects.get_or_create(cart=cart, medicine=medicine)
+            if not created:
                 cart_item.quantity += quantity
-            except CartItem.DoesNotExist:
-                # Create new cart item with quantity
-                 cart_item = CartItem(cart=cart, medicine=medicine, quantity=quantity)
-
-            # Debug: print out what will be saved in the CartItem
-            print(f"Saving CartItem: {cart_item}")
-            print(f"Cart Item Details: Cart ID: {cart_item.cart.id}, Medicine ID: {cart_item.medicine.id}, Quantity: {cart_item.quantity}")
-
-            # Save the cart item
             cart_item.save()
 
+        # Store the order_id in session to keep track of the order
+        request.session['order_id'] = order.id
         messages.success(request, "Order placed successfully!")
         return redirect('pharmacy:cart')
 
@@ -130,34 +137,100 @@ def add_to_cart(request, medicine_id):
 
 
 def cart(request):
-    cart = Cart.objects.filter(user=request.user).first()
-    items = cart.items.all() if cart else []
+    if request.user.is_authenticated:
+        cart = Cart.objects.filter(user=request.user).first()
+    else:
+        session_id = request.session.session_key
+        if not session_id:
+            request.session.create()  # Ensure a session exists
+            session_id = request.session.session_key
+         
+            return render(request, "cart.html", {"items": [], "total_price": 0})
+
+        cart = Cart.objects.filter(session_id=session_id).first()
+
+    items = CartItem.objects.filter(cart=cart) if cart else []
     total_price = sum(item.total_price() for item in items)
-    return render(request, "cart.html", {"items": items, "total_price":total_price})
+    return render(request, "cart.html", {"items": items, "total_price": total_price})
 
 def update_cart_item(request, item_id):
-    cart_item = get_object_or_404(CartItem, pk=item_id, cart__user=request.user)
-    quantity = int(request.POST.get("quantity", 0))
-    
-    if quantity > 0:
-        cart_item.quantity = quantity
-        cart_item.save()
-    else:
-        cart_item.delete()
+    """
+    Updates the quantity of a cart item or removes it if quantity is set to zero.
+    Handles both authenticated users and anonymous sessions.
+    """
+    if request.method == "POST":
+        quantity = int(request.POST.get("quantity", 0))
 
-    messages.success(request, "Cart updated successfully!")
+        # Fetch the cart based on authentication state
+        if request.user.is_authenticated:
+            cart = Cart.objects.filter(user=request.user).first()
+        else:
+            session_id = request.session.session_key
+            if not session_id:
+                messages.error(request, "Session not found. Please try again.")
+                return redirect("pharmacy:cart")
+            cart = Cart.objects.filter(session_id=session_id).first()
+
+        # Get the specific cart item
+        cart_item = get_object_or_404(CartItem, pk=item_id, cart=cart)
+
+        if quantity > 0:
+            # Update the quantity if valid
+            cart_item.quantity = quantity
+            cart_item.save()
+            messages.success(request, "Cart updated successfully!")
+        else:
+            # Remove the item if quantity is zero
+            cart_item.delete()
+            messages.success(request, "Item removed from cart!")
+
     return redirect("pharmacy:cart")
 
 def remove_cart_item(request, item_id):
-    cart_item = get_object_or_404(CartItem, pk=item_id, cart__user=request.user)
+    """
+    Removes a cart item completely.
+    Handles both authenticated users and anonymous sessions.
+    """
+    if request.user.is_authenticated:
+        cart = Cart.objects.filter(user=request.user).first()
+    else:
+        session_id = request.session.session_key
+        if not session_id:
+            messages.error(request, "Session not found. Please try again.")
+            return redirect("pharmacy:cart")
+        cart = Cart.objects.filter(session_id=session_id).first()
+
+    # Get and delete the cart item
+    cart_item = get_object_or_404(CartItem, pk=item_id, cart=cart)
     cart_item.delete()
     messages.success(request, "Item removed from cart!")
     return redirect("pharmacy:cart")
 
 
-def checkout(request):
-    cart = Cart.objects.filter(user=request.user).first()
-    items = CartItem.objects.filter(cart=cart) if cart else []
+def checkout(request, order_id):
+    # Retrieve the order object using the order_id from the URL
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        messages.error(request, "Order not found.")
+        return redirect('pharmacy:cart')
+
+    # Determine if the user is authenticated or guest
+    if request.user.is_authenticated:
+        cart = Cart.objects.filter(user=request.user).first()
+    else:
+        session_id = request.session.session_key
+        if not session_id:
+            messages.error(request,"Session not found. PLease add items to cart")
+            return redirect("pharmacy:cart")
+        cart = Cart.objects.filter(session_id=session_id).first()
+
+    if not cart:
+        messages.error(request,"Your cart is empty. PLease add items to proceed")
+        return redirect("pharmacy:cart")
+    
+    # Getting cart items
+    items = CartItem.objects.filter(cart=cart)
     total_price = sum(item.quantity * item.medicine.price for item in items)
 
     if request.method == 'POST':
@@ -166,13 +239,20 @@ def checkout(request):
         customer_address = request.POST.get('customer_address')
         phone_number = request.POST.get('phone_number')  # Get phone number from form input
 
+        # If user is a guest, store the details in the session
+        if not request.user.is_authenticated:
+            request.session['customer_name'] = customer_name
+            request.session['customer_email'] = customer_email
+            request.session['customer_address'] = customer_address
+            request.session['phone_number'] = phone_number
+    
         # M-Pesa credentials
         consumer_key = 'qGGvcCbvDKwX1h5S95vPy7gBKaI43xjg9jCzY5iMoGnxZ5G5'
         consumer_secret = '9Q12LudJh8NLnMmgoMGjGPDXgJtniWDrXMj7y6xBuN0dpAQOBRGlV5e6XUJCWrAn'
         #api_url = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
         business_shortcode = '174379'  # Replace with your Paybill or Till number
         passkey = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919' 
-        callback_url = 'https://shining-rabbit-uniquely.ngrok-free.app/tenant/payments/response'  # Replace with your callback URL
+        callback_url = 'https://communal-thrush-willing.ngrok-free.app/payment/callback'  # Replace with your callback URL
 
         # Generate timestamp
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -206,9 +286,16 @@ def checkout(request):
         # Send STK push request
         stk_response = requests.post(stk_url, headers=headers, json=payload)
 
-        print(stk_response._content)
+        response_data = stk_response.json()
 
-        if stk_response.status_code == 200:
+        print(response_data)
+
+        if response_data.get("ResponseCode") == "0":
+            # Updating the order record
+            order.checkout_request_id = response_data.get("CheckoutRequestID")
+            order.status = 'pending_payment'
+            order.save()
+
             # Notify user of payment request
             send_mail(
                 'Payment Request Sent',
@@ -221,17 +308,113 @@ def checkout(request):
             return redirect('pharmacy:success')
         else:
             messages.error(request, "Failed to initiate payment. Please try again.")
-        
+            return redirect('pharmacy:checkout')  # Or wherever you want to redirect in case of failure
+
     # return HttpResponse('success')
 
-    return render(request, 'checkout.html', {'cart': cart, 'items': items, 'total_price': total_price})
+    return render(request, 'checkout.html', {
+        'cart': cart,
+        'items': items,
+        'total_price': total_price,
+        'order':order
+        })
 
+@csrf_exempt
 def mpesa_callback(request):
     if request.method == 'POST':
-        callback_data = json.loads(request.body.decode('utf-8'))
-        print("Callback Data:", callback_data)
-        # Process payment confirmation (e.g., update order status, notify the user)
-        return JsonResponse({"ResultCode": 0, "ResultDesc": "Success"})
+        try:
+            callback_data = json.loads(request.body.decode('utf-8'))
+            print("Callback Data:", json.dumps(callback_data))
+            
+            # Extract relevant details from the callback data
+            result_code = callback_data['Body']['stkCallback']['ResultCode']
+            checkout_request_id = callback_data['Body']['stkCallback']['CheckoutRequestID']  # M-Pesa CheckoutRequestID
+            result_desc = callback_data['Body']['stkCallback'].get('ResultDesc', '')
+            transaction_id = callback_data['Body']['stkCallback'].get('TransactionID', '')
+            merchant_request_id = callback_data['Body']['stkCallback'].get('MerchantRequestID', '')
+
+            # Find the corresponding order using the CheckoutRequestID
+            order = Order.objects.get(checkout_request_id=checkout_request_id)
+
+            # Create Payment Record
+            payment = Payment(
+                order=order,
+                amount=order.medicine.price * order.quantity,  # Adjust based on how you calculate total price,  # Adjust based on how you calculate total
+                payment_status="Success" if result_code == 0 else "Failed",
+                payment_method="M-Pesa",
+                transaction_id=transaction_id,
+                response_code=str(result_code),
+                response_description=result_desc,
+            )
+            payment.save()
+
+            # Update the Order Status
+            if result_code == 0:  # Payment successful
+                order.status = 'Completed'
+            else:  # Payment failed or canceled
+                order.status = 'Canceled'
+            
+            order.save()
+
+            return JsonResponse({"ResultCode": 0, "ResultDesc": "Success"})
+
+        except Exception as e:
+            print(f"Error processing M-Pesa callback: {str(e)}")
+            return JsonResponse({"ResultCode": 1, "ResultDesc": "Failed to process the callback"})
+        
+
+def success(request):
+    if request.method == "POST":
+        # Clear session data when returning to home
+        request.session.flush()
+        return redirect('pharmacy:home')
+     
+    # Check if the user is authenticated
+    if request.user.is_authenticated:
+        user = request.user
+    else:
+        # Handle guest user (using session_id)
+        session_id = request.session.session_key
+        if not session_id:
+            # If there's no session ID, the cart is empty or there's an issue
+            return redirect("pharmacy:cart")
+        user = None  # No user for guest checkout
+
+    # Retrieve the cart (based on user or session_id)
+    cart = Cart.objects.filter(user=user).first() if user else Cart.objects.filter(session_id=session_id).first()
+
+    if not cart:
+        return redirect("pharmacy:cart")  # Redirect if cart is empty or invalid
+
+    items = CartItem.objects.filter(cart=cart)
+
+     # Prepare context with total price per item
+    items_with_totals = [
+        {
+            "name": item.medicine.name,
+            "quantity": item.quantity,
+            "price": item.medicine.price,
+            "total": item.quantity * item.medicine.price
+        }
+        for item in items
+    ]
+    total_price = sum(item["total"] for item in items_with_totals)
+
+   # If the user is authenticated, get their details (name, email)
+    if user:
+        user_name = user.get_full_name
+        user_email = user.email
+    else:
+        # For guest users, you can try to fetch data from the session if it was provided
+        user_name = request.session.get('customer_name', 'Guest')
+        user_email = request.session.get('customer_email', 'N/A')
+
+    return render(request, 'success.html', {
+        "items": items_with_totals,
+        "total_price": total_price,
+        "user_name": user_name,
+        "user_email": user_email
+    })
 
 
 # def register(request):

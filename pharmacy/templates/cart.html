@@ -55,7 +55,7 @@
                 <strong>Total: KES {{ total_price }}</strong>
             </div>
             <div>
-                <a href="{% url 'pharmacy:checkout' %}" class="btn btn-success">Checkout</a>
+                <a href="{% url 'pharmacy:checkout' order_id=request.session.order_id %}" class="btn btn-success">Checkout</a>
             </div>
     {% else %}
         <p>Your cart is empty.</p>

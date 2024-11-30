@@ -25,7 +25,10 @@ SECRET_KEY = 'django-insecure-ntf-y69v!eml5b9v-gwpwszu#k*$3gy775-378%6ws6nk03e+v
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['127.0.0.1','localhost', 'communal-thrush-willing.ngrok-free.app']
+CSRF_TRUSTED_ORIGINS = ['https://communal-thrush-willing.ngrok-free.app']
+SESSION_COOKIE_SECURE = False
+
 
 
 # Application definition

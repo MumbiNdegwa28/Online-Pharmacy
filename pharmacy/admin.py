@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import customuser, Medicine, Order
+from .models import customuser, Medicine, Order, Cart, CartItem, Payment
 
 
 # Customizing the UserAdmin for customuser
@@ -31,7 +31,34 @@ class MedicineAdmin(admin.ModelAdmin):
 # Admin configuration for Order model
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('medicine', 'customer_name', 'customer_phone', 'quantity', 'order_date')
+    list_display = ('medicine', 'customer_name', 'customer_phone', 'quantity', 'order_date', 'status')
     search_fields = ('customer_name', 'customer_phone', 'medicine__name')
-    list_filter = ('order_date',)
+    list_filter = ('order_date', 'status')
     ordering = ('-order_date',)
+
+
+# Admin configuration for Cart model
+@admin.register(Cart)
+class CartAdmin(admin.ModelAdmin):
+    list_display = ('user', 'session_id', 'created_at')
+    search_fields = ('user__username', 'session_id')
+    list_filter = ('created_at',)
+    ordering = ('-created_at',)
+
+
+# Admin configuration for CartItem model
+@admin.register(CartItem)
+class CartItemAdmin(admin.ModelAdmin):
+    list_display = ('cart', 'medicine', 'quantity')
+    search_fields = ('cart__user__username', 'medicine__name')
+    list_filter = ('quantity',)
+    ordering = ('cart',)
+
+
+# Admin configuration for Payment model
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = ('order', 'amount', 'payment_status', 'payment_method', 'transaction_id', 'payment_date')
+    search_fields = ('order__id', 'transaction_id')
+    list_filter = ('payment_status', 'payment_method', 'payment_date')
+    ordering = ('-payment_date',)

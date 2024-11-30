@@ -11,8 +11,10 @@ urlpatterns = [
     path('cart/update/<int:item_id>/', views.update_cart_item, name='update_cart_item'),
     path('cart/remove/<int:item_id>/', views.remove_cart_item, name='remove_cart_item'),
     # path('add-to-cart/<int:medicine_id>/', views.add_to_cart, name='add_to_cart'),
-    path('checkout/', views.checkout, name='checkout'),
-    path('mpesa/callback', views.mpesa_callback, name='mpesa_callback'),
+    path('checkout/<int:order_id>/', views.checkout, name='checkout'),
+    path('payment/callback', views.mpesa_callback, name='mpesa_callback'),
+    path('success/', views.success, name='success'),
+
 
 
     # path('register', views.register, name='register'),
