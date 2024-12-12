@@ -16,7 +16,7 @@ body {
 /* Glassmorphism Cards */
 .glass-card {
     background: rgba(255, 255, 255, 0.28); /* Transparent white */
-    backdrop-filter: blur(5px) saturate(180%);
+    backdrop-filter: blur(0px) saturate(180%);
     /* -webkit-backdrop-filter: blur(10px) saturate(180%); */
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 15px;
@@ -44,11 +44,11 @@ h2 {
 }
 
 /* Buttons */
-.btn-primary {
+/* .btn-primary {
     background-color: #4CA1AF; /* Teal */
-    border-color: #4CA1AF;
-    color: #ffffff; /* White text */
-}
+    /* border-color: #4CA1AF;
+    color: #ffffff; White text */
+/* } */ 
 .btn-primary:hover {
     background-color: #87CEEB; /* Light blue */
     border-color: #87CEEB;
@@ -73,9 +73,9 @@ h2 {
                 <img src="{{ medicine.image.url }}" class="card-img-top" alt="{{ medicine.name }}" style="height: 200px; object-fit: cover;">
                 <div class="card-body">
                     <h5 class="card-title text-dark">{{ medicine.name }}</h5>
-                    <p class="card-text text-muted">{{ medicine.description }}</p>
-                    <p class="text-success"><strong>Price:</strong> KES {{ medicine.price }}</p>
-                    <p class="text-danger"><strong>Stock:</strong> {{ medicine.stock }}</p>
+                    <p class="card-text ">{{ medicine.description }}</p>
+                    <p class="text-success"><strong>Price: KES {{ medicine.price }}</strong></p>
+                    <p class="text-danger"><strong>Stock: {{ medicine.stock }}</strong></p>
                     <a href="{% url 'pharmacy:order_medicine' medicine.id %}" class="btn btn-primary">Order Now</a>
                 </div>
             </div>

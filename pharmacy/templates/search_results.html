@@ -1,28 +1,94 @@
 {% extends "layout.html" %}
+{% load static %}
 
 {% block title %}Search Results - Medivana{% endblock %}
 
 {% block content %}
+<style>
+/* Body Background */
+body {
+    background-image: url("{% static 'pharmacy/images/order.jpg' %}");
+    background-size: cover;
+    font-family: 'Roboto', sans-serif;
+    color: white; /* Light text for contrast */
+}
+
+/* Glassmorphism Cards */
+.glass-card {
+    background: rgba(255, 255, 255, 0.28); /* Transparent white */
+    backdrop-filter: blur(5px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); /* Subtle shadow */
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+.glass-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.6);
+}
+
+/* Card Text Colors */
+.card-title {
+    font-weight: bold;
+    color: #ffffff; /* White text */
+}
+.card-text {
+    color: #c4d4e0; /* Light blue-gray for description */
+}
+.text-success {
+    color: #4CAF50; /* Green for price */
+}
+.text-danger {
+    color: #FF4500; /* Red for stock */
+}
+
+/* Header Styling */
+h2 {
+    font-weight: 700;
+    color: #4CA1AF; /* Teal for header */
+    text-align: center;
+}
+
+/* Buttons */
+.btn-primary {
+    background-color: #4CA1AF; /* Teal */
+    border-color: #4CA1AF;
+    color: #ffffff; /* White text */
+}
+.btn-primary:hover {
+    background-color: #87CEEB; /* Light blue */
+    border-color: #87CEEB;
+    color: #002F6C; /* Dark blue for contrast */
+}
+
+/* Responsive Padding */
+@media (max-width: 768px) {
+    .container {
+        padding: 0 1rem;
+    }
+}
+</style>
+
 <div class="container mt-4">
-    <h2>Search Results for "{{ query }}"</h2>
+    <h2 class="mb-3">Search Results for "{{ query }}"</h2>
     <div class="row">
         {% if medications %}
         {% for medicine in medications %}
         <div class="col-md-4">
-            <div class="card mb-4">
+            <div class="card mb-4 glass-card">
                 <img src="{{ medicine.image.url }}" class="card-img-top" alt="{{ medicine.name }}" style="height: 200px; object-fit: cover;">
                 <div class="card-body">
                     <h5 class="card-title">{{ medicine.name }}</h5>
                     <p class="card-text">{{ medicine.description }}</p>
-                    <p><strong>Price:</strong> KES {{ medicine.price }}</p>
-                    <p><strong>Stock:</strong> {{ medicine.stock }}</p>
+                    <p class="text-success"><strong>Price: KES {{ medicine.price }}</strong></p>
+                    <p class="text-danger"><strong>Stock: {{ medicine.stock }}</strong></p>
                     <a href="{% url 'pharmacy:order_medicine' medicine.id %}" class="btn btn-primary">Order Now</a>
                 </div>
             </div>
         </div>
         {% endfor %}
         {% else %}
-        <p>No medications found matching your search criteria.</p>
+        <p class="text-center text-warning">No medications found matching your search criteria.</p>
         {% endif %}
     </div>
 </div>

@@ -71,7 +71,7 @@ class Payment(models.Model):
         max_length=50, 
         choices=[('M-Pesa', 'M-Pesa'), ('CreditCard', 'CreditCard')]
     )
-    transaction_id = models.CharField(max_length=100, unique=True)  # Unique transaction ID from the payment provider
+    transaction_id = models.CharField(max_length=100, blank=True, null=True)  # Unique transaction ID from the payment provider
     response_code = models.CharField(max_length=10)
     response_description = models.CharField(max_length=255)
     payment_date = models.DateTimeField(auto_now_add=True)

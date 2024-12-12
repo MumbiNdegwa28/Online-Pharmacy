@@ -1,5 +1,5 @@
 {% extends 'layout.html' %}
-{% load static%}
+{%load static%}
 {% block content %}
 <style>
     body {
@@ -15,11 +15,11 @@
     /* Glassmorphism Card */
     .glass-card {
         background: rgba(255, 255, 255, 0.28); /* Transparent white */
-        backdrop-filter: blur(0px);
+        backdrop-filter: blur(0px) saturate(180%);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 15px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); /* Shadow for depth */
-        padding: 20px;
+        padding: 30px;
         transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
     }
     .glass-card:hover {
@@ -27,7 +27,7 @@
         box-shadow: 0 8px 15px rgba(0, 0, 0, 0.6);
     }
 
-    /* Form Input Styling */
+    /* Form Styling */
     form .form-control {
         border-radius: 10px; /* Rounded corners for inputs */
         background: rgba(255, 255, 255, 0.9); /* Slightly opaque white */
@@ -59,10 +59,22 @@
         text-align: center;
     }
 
+    /* Contact Information Styling */
+    .contact-info {
+        margin-top: 20px;
+        color: #4CA1AF; /* Teal */
+        text-align: center;
+    }
+    .contact-info i {
+        font-size: 1.5rem;
+        margin-right: 10px;
+        color: #87CEEB; /* Light blue icons */
+    }
+
     /* Responsive Adjustments */
     @media (max-width: 768px) {
         .glass-card {
-            padding: 15px;
+            padding: 20px;
         }
         h1 {
             font-size: 1.5rem;
@@ -75,39 +87,31 @@
 
 <div class="container mt-5">
     <div class="glass-card">
-        {% if messages %}
-            <div class="alert alert-info">
-                {% for message in messages %}
-                    <p>{{ message }}</p>
-                {% endfor %}
-            </div>
-        {% endif %}
-        <h1>Checkout</h1>
-        <p>Total: KES {{ total_price }}</p>
-        <form method="post">
+        <h1>Contact Us</h1>
+        <form method="post" action="">
             {% csrf_token %}
             <div class="mb-3">
-                <label for="customerName" class="form-label">Name</label>
-                <input type="text" name="customer_name" class="form-control" value="{{ user.get_full_name }}" required>
+                <label for="name" class="form-label">Name</label>
+                <input type="text" id="name" name="name" class="form-control" placeholder="Your Full Name" required>
             </div>
             <div class="mb-3">
-                <label for="customerEmail" class="form-label">Email</label>
-                <input type="email" name="customer_email" class="form-control" value="{{ user.email }}" required>
+                <label for="email" class="form-label">Email</label>
+                <input type="email" id="email" name="email" class="form-control" placeholder="Your Email Address" required>
             </div>
             <div class="mb-3">
-                <label for="customerAddress" class="form-label">Address</label>
-                <textarea name="customer_address" class="form-control" rows="3">{{ cart.order_set.last.customer_address }}</textarea>
+                <label for="message" class="form-label">Message</label>
+                <textarea id="message" name="message" class="form-control" rows="4" placeholder="Write your message here..." required></textarea>
             </div>
-            <div class="form-group mb-3">
-                <label for="phone_number">Phone Number</label>
-                <input type="tel" id="phone_number" name="phone_number" class="form-control" placeholder="2547XXXXXXXX" required>
-                <small class="form-text text-muted">Enter your M-Pesa phone number in the format 2547XXXXXXXX.</small>
-            </div>
-            <h4 class="text-center">Total Amount: KES {{ total_price }}</h4>
-            <div class="d-flex justify-content-center mt-4">
-                <button type="submit" class="btn btn-primary">Proceed with M-Pesa</button>
+            <div class="d-flex justify-content-center">
+                <button type="submit" class="btn btn-primary">Send Message</button>
             </div>
         </form>
+
+        <div class="contact-info mt-4">
+            <p><i class="bi bi-geo-alt-fill"></i> Nairobi, Kenya</p>
+            <p><i class="bi bi-envelope-fill"></i> support@medivana.com</p>
+            <p><i class="bi bi-telephone-fill"></i> +254 700000000</p>
+        </div>
     </div>
 </div>
 {% endblock %}

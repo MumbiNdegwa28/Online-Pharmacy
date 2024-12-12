@@ -26,6 +26,37 @@ def home(request):
      medicines = Medicine.objects.all()
      return render(request, 'home.html', {'medicines': medicines})
 
+# def contact(request):
+#     return render(request, 'contact.html')
+
+def contact(request):
+    if request.method == 'POST':
+        name = request.POST.get('name')
+        email = request.POST.get('email')
+        message = request.POST.get('message')
+
+        # Format email content
+        subject = f"New Contact Form Submission from {name}"
+        body = f"Name: {name}\nEmail: {email}\n\nMessage:\n{message}"
+
+        # Send email
+        try:
+            send_mail(
+                subject,
+                body,
+                'your_email@gmail.com',  # From email
+                ['recipient_email@example.com'],  # To email(s)
+                fail_silently=False,
+            )
+            messages.success(request, 'Your message has been sent successfully!')
+        except Exception as e:
+            print(f"Error sending email: {e}")
+            messages.error(request, 'Failed to send your message. Please try again later.')
+
+    return render(request, 'contact.html')
+
+
+
 def search_results(request):
     query = request.GET.get('q', '').strip()  # Get the search query
     if query:
@@ -38,7 +69,7 @@ def search_results(request):
 def order_medicine(request, pk):
     medicine = get_object_or_404(Medicine, pk=pk)
 
-     # First check if the user is authenticated
+    # First check if the user is authenticated
     if not request.user.is_authenticated:
         # For anonymous users, ensure a session ID exists or create one
         session_id = request.session.session_key
@@ -80,9 +111,8 @@ def order_medicine(request, pk):
                     customer_phone=customer_phone,
                     customer_address=customer_address,
                     quantity=quantity,
-                    user=request.user.id,
-                    session_id=session_id,  # Associate with user or session
-
+                    user=request.user if request.user.is_authenticated else None,
+                    session_id=session_id if not request.user.is_authenticated else None,  # Associate with user or session
                 )
 
                 # Debugging: Print the instance details before saving
@@ -230,12 +260,12 @@ def checkout(request, order_id):
     else:
         session_id = request.session.session_key
         if not session_id:
-            messages.error(request,"Session not found. PLease add items to cart")
+            messages.error(request,"Session not found. Please add items to cart")
             return redirect("pharmacy:cart")
         cart = Cart.objects.filter(session_id=session_id).first()
 
     if not cart:
-        messages.error(request,"Your cart is empty. PLease add items to proceed")
+        messages.error(request,"Your cart is empty. Please add items to proceed")
         return redirect("pharmacy:cart")
     
     # Getting cart items
@@ -305,6 +335,10 @@ def checkout(request, order_id):
             order.status = 'pending_payment'
             order.save()
 
+             # Set session flag for success
+            messages.success(request, "Payment request sent. Please complete the transaction.")
+
+
             # Notify user of payment request
             send_mail(
                 'Payment Request Sent',
@@ -313,11 +347,11 @@ def checkout(request, order_id):
                 [customer_email],
                 fail_silently=False,
             )
-            messages.success(request, "Payment request sent. Please complete the transaction.")
-            return redirect('pharmacy:success')
+            return redirect('pharmacy:success', order_id=order.id)
+
         else:
             messages.error(request, "Failed to initiate payment. Please try again.")
-            return redirect('pharmacy:checkout')  # Or wherever you want to redirect in case of failure
+            return redirect('pharmacy:checkout', order_id=order_id)  # Or wherever you want to redirect in case of failure
 
     # return HttpResponse('success')
 
@@ -325,7 +359,6 @@ def checkout(request, order_id):
         'cart': cart,
         'items': items,
         'total_price': total_price,
-        'order':order
         })
 
 @csrf_exempt
@@ -339,91 +372,222 @@ def mpesa_callback(request):
             result_code = callback_data['Body']['stkCallback']['ResultCode']
             checkout_request_id = callback_data['Body']['stkCallback']['CheckoutRequestID']  # M-Pesa CheckoutRequestID
             result_desc = callback_data['Body']['stkCallback'].get('ResultDesc', '')
-            transaction_id = callback_data['Body']['stkCallback'].get('TransactionID', '')
-            merchant_request_id = callback_data['Body']['stkCallback'].get('MerchantRequestID', '')
+            callback_metadata = callback_data['Body']['stkCallback'].get('CallbackMetadata',{}).get('Item',[])
 
+            # Extract transaction_id if available
+            transaction_id = None
+            for item in callback_metadata:
+                if item.get('Name') == 'MpesaReceiptNumber':
+                    transaction_id = item.get('Value')
+                    break
+            
             # Find the corresponding order using the CheckoutRequestID
             order = Order.objects.get(checkout_request_id=checkout_request_id)
 
-            # Create Payment Record
-            payment = Payment(
-                order=order,
-                amount=order.medicine.price * order.quantity,  # Adjust based on how you calculate total price,  # Adjust based on how you calculate total
-                payment_status="Success" if result_code == 0 else "Failed",
-                payment_method="M-Pesa",
-                transaction_id=transaction_id,
-                response_code=str(result_code),
-                response_description=result_desc,
-            )
-            payment.save()
 
-            # Update the Order Status
-            if result_code == 0:  # Payment successful
-                order.status = 'Completed'
-            else:  # Payment failed or canceled
-                order.status = 'Canceled'
+            # Step 3: Retrieve cart associated with the order
+            if order.user:
+                # If the order is tied to a user, fetch the user's cart
+                cart = Cart.objects.filter(user=order.user).first()
+            else:
+                # If the order is not tied to a user (guest user), retrieve the cart using the session
+                cart = Cart.objects.filter(session_id=order.session_id).first()
+
+            if not cart:
+                raise ValueError("Cart associated with the order not found.")
             
-            order.save()
+            if result_code == 0:  # Payment successful
+                # Clear the cart and update order status
+                CartItem.objects.filter(cart=cart).delete()
+                order.status = 'Completed'
+                order.save()
 
-            return JsonResponse({"ResultCode": 0, "ResultDesc": "Success"})
+                # Create payment record
+                Payment.objects.create(
+                    order=order,
+                    amount=order.medicine.price * order.quantity,
+                    payment_status="Success",
+                    payment_method="M-Pesa",
+                    transaction_id=transaction_id,
+                    response_code=str(result_code),
+                    response_description=result_desc,
+                )
+                
+                return redirect('pharmacy:success', order_id=order.id)  # Redirect to success view after success               
 
+            else:  # Payment failed or canceled
+                # Update the order status to "Canceled"
+                order.status = 'Cancelled'
+                order.save()
+
+                # Create payment record
+                Payment.objects.create(
+                    order=order,
+                    amount=order.medicine.price * order.quantity,
+                    payment_status="Failed",
+                    payment_method="M-Pesa",
+                    transaction_id=transaction_id or "",
+                    response_code=str(result_code),
+                    response_description=result_desc,
+                )
+
+                return redirect('pharmacy:success', order_id=order.id)  # Redirect to success view after failure
+            
         except Exception as e:
             print(f"Error processing M-Pesa callback: {str(e)}")
             return JsonResponse({"ResultCode": 1, "ResultDesc": "Failed to process the callback"})
-        
-
-def success(request):
-    if request.method == "POST":
-        # Clear session data when returning to home
-        request.session.flush()
-        return redirect('pharmacy:home')
      
+
+def success(request, order_id=None):
+    if request.method == "GET" and request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        
+        # Respond to AJAX request for payment status
+        # payment_status = request.session.get('payment_status', None)
+        # print (f"The payment status at the moment is, {payment_status}")
+
+        # payment_message = request.session.get('payment_message', 'Payment status is not available yet.')
+        
+        # if payment_status == 'success':
+        #     return JsonResponse({
+        #         'status': 'Success',
+        #         'message': payment_message,
+        #     })
+        # elif payment_status == 'Failure':
+        #     return JsonResponse({
+        #         'status': 'Failure',
+        #         'message': payment_message,
+        #     })
+        # else:
+        #     return JsonResponse({
+        #         'status': 'pending',
+        #         'message': 'Payment is still being processed. Please try again later.',
+        #     })
+    
+        # Normal rendering of the success page
+        if request.method == "POST":
+            # Clear session data when returning to home
+            request.session.flush()
+            return redirect('pharmacy:home')
+    
+     # Fetch the order details using the provided `order_id`
+        try:
+            order = Order.objects.get(id=order_id)
+        except Order.DoesNotExist:
+            return JsonResponse({
+                'status': 'Error',
+                'message': "Order not found."
+            })
+        
+        # Determine payment status based on order status
+        if order.status == 'Completed':
+            payment_status = "Success"
+            payment_message = f"Payment Successful. Transaction ID: {order.payment.transaction_id}" if hasattr(order, 'payment') and order.payment else "Payment Successful."
+        elif order.status == 'Canceled':
+            payment_status = "Failure"
+            payment_message = "Payment Failed. Please try again."
+        else:
+            payment_status = "Pending"
+            payment_message = "Payment is still being processed. Please check back later."
+
+        # Return status and message as JSON
+        return JsonResponse({
+            'status': payment_status,
+            'message': payment_message,
+        })
+
+    # Normal page rendering (non-AJAX request)
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        messages.error(request, "Order not found.")
+        return redirect("pharmacy:cart")
+
     # Check if the user is authenticated
     if request.user.is_authenticated:
         user = request.user
+        cart = Cart.objects.filter(user=user).first()
     else:
         # Handle guest user (using session_id)
         session_id = request.session.session_key
         if not session_id:
             # If there's no session ID, the cart is empty or there's an issue
             return redirect("pharmacy:cart")
+        cart = Cart.objects.filter(session_id=session_id).first()
         user = None  # No user for guest checkout
 
-    # Retrieve the cart (based on user or session_id)
-    cart = Cart.objects.filter(user=user).first() if user else Cart.objects.filter(session_id=session_id).first()
-
+    # Ensure the cart associated with the order is valid
+    # cart = order.cart
     if not cart:
-        return redirect("pharmacy:cart")  # Redirect if cart is empty or invalid
+        messages.error(request, "No items found in the cart.")
+        return redirect("pharmacy:cart")
 
     items = CartItem.objects.filter(cart=cart)
 
-     # Prepare context with total price per item
-    items_with_totals = [
+    # Prepare a detailed item list with calculated totals
+    item_details = [
         {
             "name": item.medicine.name,
             "quantity": item.quantity,
-            "price": item.medicine.price,
-            "total": item.quantity * item.medicine.price
+            "price_per_item": item.medicine.price,
+            "total_price": item.quantity * item.medicine.price,
         }
         for item in items
     ]
-    total_price = sum(item["total"] for item in items_with_totals)
 
-   # If the user is authenticated, get their details (name, email)
+    # Prepare context with total price per item
+    total_price = sum(item.quantity * item.medicine.price for item in items)
+
+    # Determine the payment status and message based on the order status
+    if order.status == 'Completed':
+        payment_status = "success"
+        payment_message = f"Payment Successful. Transaction ID: {order.payment.transaction_id}"
+    elif order.status == 'Cancelled':
+        payment_status = "Failure"
+        payment_message = "Payment Failed. Please try again."
+    else:
+        payment_status = "Pending"
+        payment_message = "Payment is still being processed. Please check back later."
+
+    # If the user is authenticated, get their details (name, email)
     if user:
-        user_name = user.get_full_name
+        user_name = user.get_full_name()
         user_email = user.email
     else:
         # For guest users, you can try to fetch data from the session if it was provided
-        user_name = request.session.get('customer_name', 'Guest')
-        user_email = request.session.get('customer_email', 'N/A')
+        user_name = order.customer_name or 'Guest'
+        user_email = request.customer_email or 'N/A'
 
     return render(request, 'success.html', {
-        "items": items_with_totals,
+        "items": item_details,
         "total_price": total_price,
         "user_name": user_name,
-        "user_email": user_email
+        "user_email": user_email,
+        "payment_status": payment_status,
+        "payment_message": payment_message,
     })
+
+
+def clear_cart_and_redirect(request):
+    # Handle for authenticated users
+    if request.user.is_authenticated:
+        cart = Cart.objects.filter(user=request.user).first()
+        if cart:
+            cart.delete()  # Deletes the user's cart
+    else:
+        # Handle for guest users
+        session_id = request.session.session_key
+        if session_id:
+            cart = Cart.objects.filter(session_id=session_id).first()
+            if cart:
+                cart.delete()  # Deletes the guest's cart
+
+    # After clearing the cart, redirect to the home page
+    return redirect("pharmacy:home")
+
+
+
+
+
 
 
 # def register(request):
